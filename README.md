@@ -15,11 +15,11 @@ By replacing standard skip-connections with active Spatial Attention Gates and u
 
 Our experimental validation highlights two distinct optimization milestones:
 
-1. **Standard Attention U-Net**: Reached a peak Validation Dice Score of **0.7600**.
-2. **PSO Optimized Version**: By employing Particle Swarm Optimization (PSO) to fine-tune the hyperparameter landscape (learning rates, loss weights, dropout regularization), the network achieved a peak Validation Dice Score of **0.8021**.
+1. **Standard Attention U-Net**: Reached an average Validation Dice Score of **0.7614**.
+2. **PSO Optimized Version**: By employing Particle Swarm Optimization (PSO) to fine-tune the hyperparameter landscape (learning rates, loss weights, dropout regularization), the network achieved an average Validation Dice Score of **0.8021**.
 
 ### Performance Metrics
-* **Peak Dice Score:** `0.8021` (PSO Optimized)
+* **Average Dice Score:** `0.8021` (PSO Optimized)
 * **Model Parameters:** `4,188,585 (~4.19M)` 
 * **Inference Speed:** `~40ms per image (24.8 FPS)` directly on a standard CPU.
 * **Loss Objective:** Hybrid Custom Loss `(0.7 * Tversky Loss + 0.3 * Focal Loss)`
