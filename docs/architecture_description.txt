@@ -1,0 +1,192 @@
+================================================================================
+ATTENTION U-NET WITH PRETRAINED EFFICIENTNET-B0 BACKBONE: ARCHITECTURE REPORT
+================================================================================
+File Analyzed: c:\Users\Zephyrus\Documents\ML&DM1\Ultrasound Segmentation\model\unet.py
+Structural Trace: c:\Users\Zephyrus\Documents\ML&DM1\Ultrasound Segmentation\architecture
+Primary Classes: AttentionGate, UNet
+
+This document provides a highly detailed, comprehensive breakdown of the model
+architecture. The network combines an ImageNet-pretrained EfficientNet-B0 feature
+extractor as the encoder with a custom, attention-gated decoder to achieve
+precise segmentation of grayscale ultrasound images.
+
+--------------------------------------------------------------------------------
+1. GLOBAL MODEL COMPLEXITY & PARAMETER ANALYSIS
+--------------------------------------------------------------------------------
+Based on the structural trace, the model contains the following parameters:
+  - Total Parameters:      4,188,585
+  - Trainable Parameters:  4,188,585 (100.0%)
+  - Non-Trainable Params:  0
+
+PARAMETER ALLOCATION SUMMARY:
+┌──────────────────────────────────────┬──────────────────────┬────────────────┐
+│ Component                            │ Parameter Count      │ % of Model     │
+├──────────────────────────────────────┼──────────────────────┼────────────────┤
+│ Encoder (EfficientNet-B0 Backbone)   │ 3,594,812            │ 85.82%         │
+│ Decoder Block 1 (E5 -> E4)           │   495,719            │ 11.83%         │
+│ Decoder Block 2 (E4 -> E3)           │    63,103            │  1.51%         │
+│ Decoder Block 3 (E3 -> E2)           │    20,209            │  0.48%         │
+│ Decoder Block 4 (E2 -> E1)           │     8,875            │  0.21%         │
+│ Final Upsampling (E1 -> Input Size)  │     5,744            │  0.14%         │
+│ Output Projection (outconv 1x1)      │        17            │  0.00%         │
+├──────────────────────────────────────┼──────────────────────┼────────────────┤
+│ TOTAL                                │ 4,188,585            │ 100.00%        │
+└──────────────────────────────────────┴──────────────────────┴────────────────┘
+
+Key Architectural Insight:
+The encoder backbone accounts for the vast majority of the network's parameters.
+The custom Attention Decoder remains highly lightweight (~593k parameters),
+which is ideal for preventing overfitting on limited medical imaging datasets
+while still benefiting from powerful ImageNet representation learning.
+
+--------------------------------------------------------------------------------
+2. DETAILED BLOCK-BY-BLOCK LAYER ANALYSIS
+--------------------------------------------------------------------------------
+
+A. THE ENCODER (EFFICIENTNET-B0 BACKBONE)
+   Instantiated via `timm.create_model` with `features_only=True` and `in_chans=1`.
+   Grayscale inputs are handled directly by adapting the first convolutional layer.
+   The encoder contains:
+   
+   1. Stem Convolution (Conv2d 2-1): 
+      - Input channel: 1, Output channels: 32, Kernel size: 3x3, Stride: 2
+      - Parameters: 288
+      - Activation: SiLU via BatchNormAct2d (64 params)
+   
+   2. EfficientNet Blocks (Sequential 2-3) containing 7 MBConv sequential stages:
+      - Stage 1 (Sequential 3-3): 1,448 parameters
+      - Stage 2 (Sequential 3-4): 16,714 parameters
+      - Stage 3 (Sequential 3-5): 46,640 parameters
+      - Stage 4 (Sequential 3-6): 242,930 parameters
+      - Stage 5 (Sequential 3-7): 543,148 parameters
+      - Stage 6 (Sequential 3-8): 2,026,348 parameters
+      - Stage 7 (Sequential 3-9): 717,232 parameters
+   
+   The encoder outputs 5 intermediate feature maps at consecutive scales:
+   - Scale E1 (features[0]): 16 channels, shape [B, 16, 128, 128]
+   - Scale E2 (features[1]): 24 channels, shape [B, 24, 64, 64]
+   - Scale E3 (features[2]): 40 channels, shape [B, 40, 32, 32]
+   - Scale E4 (features[3]): 112 channels, shape [B, 112, 16, 16]
+   - Scale E5 (features[4]): 320 channels, shape [B, 320, 8, 8] (Bottleneck stage)
+
+B. THE DECODER STAGES
+   The decoder is structured in 4 Blocks, followed by a Final Upsampling stage
+   and a 1x1 Projection convolution.
+
+   --- DECODER BLOCK 1 (Stage 5 to Stage 4) [Total Block Params: 495,719] ---
+   - Input: Bottleneck representation x5 (320 channels, size 8x8).
+   - Upsampling (ConvTranspose2d 1-2):
+     * Input channels: 320, Output channels: 112, Kernel size: 2x2, Stride: 2
+     * Parameters: 143,472
+     * Dimension: Scaled up to 16x16. Bilinear F.interpolate is applied to align corners.
+   - Attention Gating (AttentionGate 1-3) [Total Gate Params: 12,887]:
+     * Gating signal (g): upsampled d1 (112 channels)
+     * Skip connection (x): Encoder Scale E4 (112 channels)
+     * Wg (gating pathway): Conv2d 1x1 to F_int=56 (6,328 params) + BatchNorm2d (112 params)
+     * Wx (skip pathway):   Conv2d 1x1 to F_int=56 (6,328 params) + BatchNorm2d (112 params)
+     * psi (projection):    Conv2d 1x1 to 1 channel (57 params) + BatchNorm2d (2 params) + Sigmoid
+     * Activation: fused features pass through ReLU before projection.
+   - Concatenation: Concatenates upsampled d1 (112) and gated x4_att (112) -> 224 channels.
+   - Double Convolution:
+     * d11 (Conv2d 1-4): 224 -> 112 channels, kernel 3x3, padding 1 (225,904 params) + BN (224 params) -> ReLU
+     * d12 (Conv2d 1-6): 112 -> 112 channels, kernel 3x3, padding 1 (113,008 params) + BN (224 params) -> ReLU
+   - Regularization (Dropout2d): Applied with probability `dropout_p` (e.g. 0.5).
+
+   --- DECODER BLOCK 2 (Stage 4 to Stage 3) [Total Block Params: 63,103] ---
+   - Input: Decoder Block 1 output d1 (112 channels, size 16x16).
+   - Upsampling (ConvTranspose2d 1-8):
+     * Input channels: 112, Output channels: 40, Kernel size: 2x2, Stride: 2 (17,960 params) -> 32x32.
+   - Attention Gating (AttentionGate 1-9) [Total Gate Params: 1,703]:
+     * Gating (g) & Skip (x) channel: 40, Intermediate bottleneck channels: 20
+     * Wg: Conv2d 1x1 (820 params) + BatchNorm2d (40 params)
+     * Wx: Conv2d 1x1 (820 params) + BatchNorm2d (40 params)
+     * psi: Conv2d 1x1 (21 params) + BatchNorm2d (2 params) + Sigmoid
+   - Concatenation: d2 (40) and gated x3_att (40) -> 80 channels.
+   - Double Convolution:
+     * d21 (Conv2d 1-10): 80 -> 40 channels (28,840 params) + BN (80 params) -> ReLU
+     * d22 (Conv2d 1-12): 40 -> 40 channels (14,440 params) + BN (80 params) -> ReLU
+   - Regularization (Dropout2d): Applied with probability `dropout_p`.
+
+   --- DECODER BLOCK 3 (Stage 3 to Stage 2) [Total Block Params: 20,209] ---
+   - Input: Decoder Block 2 output d2 (40 channels, size 32x32).
+   - Upsampling (ConvTranspose2d 1-14):
+     * Input channels: 40, Output channels: 24, Kernel size: 2x2, Stride: 2 (3,864 params) -> 64x64.
+   - Attention Gating (AttentionGate 1-15) [Total Gate Params: 649]:
+     * Gating (g) & Skip (x) channel: 24, Intermediate bottleneck channels: 12
+     * Wg: Conv2d 1x1 (300 params) + BatchNorm2d (24 params)
+     * Wx: Conv2d 1x1 (300 params) + BatchNorm2d (24 params)
+     * psi: Conv2d 1x1 (13 params) + BatchNorm2d (2 params) + Sigmoid
+   - Concatenation: d3 (24) and gated x2_att (24) -> 48 channels.
+   - Double Convolution:
+     * d31 (Conv2d 1-16): 48 -> 24 channels (10,392 params) + BN (48 params) -> ReLU
+     * d32 (Conv2d 1-18): 24 -> 24 channels (5,208 params) + BN (48 params) -> ReLU
+   - Regularization (Dropout2d): Applied with scaled probability `dropout_p * 0.67` (~0.33).
+
+   --- DECODER BLOCK 4 (Stage 2 to Stage 1) [Total Block Params: 8,875] ---
+   - Input: Decoder Block 3 output d3 (24 channels, size 64x64).
+   - Upsampling (ConvTranspose2d 1-20):
+     * Input channels: 24, Output channels: 16, Kernel size: 2x2, Stride: 2 (1,552 params) -> 128x128.
+   - Attention Gating (AttentionGate 1-21) [Total Gate Params: 315]:
+     * Gating (g) & Skip (x) channel: 16, Intermediate bottleneck channels: 8
+     * Wg: Conv2d 1x1 (136 params) + BatchNorm2d (16 params)
+     * Wx: Conv2d 1x1 (136 params) + BatchNorm2d (16 params)
+     * psi: Conv2d 1x1 (9 params) + BatchNorm2d (2 params) + Sigmoid
+   - Concatenation: d4 (16) and gated x1_att (16) -> 32 channels.
+   - Double Convolution:
+     * d41 (Conv2d 1-22): 32 -> 16 channels (4,624 params) + BN (32 params) -> ReLU
+     * d42 (Conv2d 1-24): 16 -> 16 channels (2,320 params) + BN (32 params) -> ReLU
+   - Regularization (Dropout2d): Applied with scaled probability `dropout_p * 0.33` (~0.17).
+
+   --- DECODER FINAL UPSAMPLING (Stage 1 to Input Resolution) [Total Params: 5,744] ---
+   - Input: Decoder Block 4 output d4 (16 channels, size 128x128).
+   - Upsampling (ConvTranspose2d 1-26):
+     * Input channels: 16, Output channels: 16, Kernel size: 2x2, Stride: 2 (1,040 params) -> 256x256.
+   - Double Convolution:
+     * d_final1 (Conv2d 1-27): 16 -> 16 channels (2,320 params) + BN (32 params) -> ReLU
+     * d_final2 (Conv2d 1-29): 16 -> 16 channels (2,320 params) + BN (32 params) -> ReLU
+
+   --- OUTPUT PROJECTION [Total Params: 17] ---
+   - Input: Final double-convolution features (16 channels, size 256x256).
+   - Layer (Conv2d 1-31): Outconv 1x1 projection (16 in, n_class out).
+     * Parameters: 17 (when n_class=1).
+   - Activation (ReLU 1-32): Projects raw logits without activation inside forward pass.
+     Sigmoid activation is applied inside the combined loss function (Focal + Dice) during training.
+
+--------------------------------------------------------------------------------
+3. THE ATTENTION GATE MECHANISM & PARAMETER DECAY
+--------------------------------------------------------------------------------
+The custom `AttentionGate` is mathematically defined as:
+   g_proj = Wg(g) = BatchNorm2d(Conv2d(g, F_int, kernel_size=1))
+   x_proj = Wx(x) = BatchNorm2d(Conv2d(x, F_int, kernel_size=1))
+   psi    = Sigmoid(BatchNorm2d(Conv2d(ReLU(g_proj + x_proj), 1, kernel_size=1)))
+   output = x * psi
+
+DYNAMIC COMPLEXITY DECAY:
+As the spatial dimensions increase from the bottleneck towards the final output, the
+number of feature channels decreases. Consequently, the capacity (parameter count)
+of the Attention Gates scales down exponentially.
+
+- Gate 1 (16x16 res, 112 channels): 12,887 parameters (High capacity, extracts deep shape cues)
+- Gate 2 (32x32 res,  40 channels):  1,703 parameters
+- Gate 3 (64x64 res,  24 channels):    649 parameters
+- Gate 4 (128x128 res, 16 channels):   315 parameters (Lightweight, preserves fine textures)
+
+This dynamic scaling ensures that the model preserves high-resolution structural details
+without adding excessive computational overhead at shallower resolutions.
+
+--------------------------------------------------------------------------------
+4. SPATIAL REGULARIZATION & DROPOUT SCALING
+--------------------------------------------------------------------------------
+To mitigate overfitting on clinical scans, the model utilizes 2D spatial dropout
+(`nn.Dropout2d`) which zeros out entire channel grids rather than individual pixels.
+
+The dropout rate decreases linearly based on decoder depth:
+- Stage D1 (deepest, E5->E4): `dropout_p` (e.g. 0.50)
+- Stage D2 (deep, E4->E3):    `dropout_p` (e.g. 0.50)
+- Stage D3 (medium, E3->E2):  `dropout_p * 0.67` (~0.33)
+- Stage D4 (shallow, E2->E1): `dropout_p * 0.33` (~0.17)
+
+This design maintains heavy regularization in the deep layers (where features are highly
+abstract and parametrical) while keeping fine-grained spatial representations intact near
+the segmentation output projection.
+================================================================================

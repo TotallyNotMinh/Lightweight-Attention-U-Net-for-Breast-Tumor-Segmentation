@@ -1,0 +1,21 @@
+# Datasets & Augmented Samples
+data/Dataset_BUSI_with_GT/
+test_data/
+augmented_samples/
+
+# Model Checkpoints & Weights
+checkpoints/
+
+# Virtual Environments & Caches
+.venv/
+__pycache__/
+.ipynb_checkpoints/
+.pytest_cache/
+
+# Exports & Generated UI
+presentation_export/
+*.pdf
+
+# OS generated files
+.DS_Store
+Thumbs.db
