@@ -4,6 +4,11 @@ This repository contains the implementation of a highly optimized, lightweight *
 
 By replacing standard skip-connections with active Spatial Attention Gates and using a robust `EfficientNet-B0` backbone, the network actively filters acoustic speckle noise and highlights tumor boundaries while requiring only a fraction of the computational power of standard medical segmentation networks.
 
+<div align="center">
+  <img src="demo/image3.png" alt="Optimal Segmentation Example" width="800">
+  <p><em>Example: The network successfully bounding an irregular, lobulated tumor while actively suppressing acoustic shadowing and surrounding tissue noise.</em></p>
+</div>
+
 ---
 
 ## 🎯 Key Achievements & Results
